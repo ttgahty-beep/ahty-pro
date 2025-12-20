@@ -1,0 +1,8 @@
+{
+  "name": "Copy of NEXA ARENA",
+  "description": "AI-Driven Immersive 3D Gaming Platform by Ahtesham & Salman",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
