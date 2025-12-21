@@ -1,8 +1,20 @@
+
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Lazy initialization prevents top-level crashes if env vars are missing
+const getAiClient = () => {
+  const key = process.env.API_KEY;
+  if (!key) {
+    console.warn("NEXA SYSTEM WARNING: API Key not found. AI features will be offline.");
+    return null;
+  }
+  return new GoogleGenAI({ apiKey: key });
+};
 
 export const getCrewChiefAdvice = async (context: string, stats: any): Promise<string> => {
+  const ai = getAiClient();
+  if (!ai) return "COMM LINK OFFLINE: CHECK API CONFIGURATION";
+
   try {
     const prompt = `
       You are NEXA, an AI Crew Chief for a futuristic high-speed racing team. 
@@ -16,7 +28,7 @@ export const getCrewChiefAdvice = async (context: string, stats: any): Promise<s
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.0-flash',
       contents: prompt,
     });
     
@@ -28,6 +40,9 @@ export const getCrewChiefAdvice = async (context: string, stats: any): Promise<s
 };
 
 export const getCarAnalysis = async (config: any): Promise<string> => {
+   const ai = getAiClient();
+   if (!ai) return "ANALYSIS UNAVAILABLE";
+
    try {
     const prompt = `
       Analyze this car configuration for a cyberpunk racing game:
@@ -40,7 +55,7 @@ export const getCarAnalysis = async (config: any): Promise<string> => {
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.0-flash',
       contents: prompt,
     });
 
