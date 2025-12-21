@@ -151,7 +151,7 @@ export const ThreeCar: React.FC<ThreeCarProps> = ({ config, isRotating = true, t
   );
 };
 
-const Wheel = ({ position, rimColor, size }: { position: [number, number, number], rimColor: string, size: number }) => {
+const Wheel: React.FC<{ position: [number, number, number], rimColor: string, size: number }> = ({ position, rimColor, size }) => {
   return (
     <group position={position} rotation={[0, 0, Math.PI / 2]}>
       <mesh>

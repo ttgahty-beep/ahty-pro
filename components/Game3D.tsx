@@ -1,15 +1,18 @@
+
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { PerspectiveCamera, Environment, Stars, Text, Float } from '@react-three/drei';
-import { Vector3, MathUtils } from 'three';
+import { PerspectiveCamera, Stars, Text, Float } from '@react-three/drei';
+import { Vector3, MathUtils, Group } from 'three';
+import * as THREE from 'three';
 import { ThreeCar } from './ThreeCar';
 import { CarConfig, GameState } from '../types';
-import * as THREE from 'three';
 
-// Constants
-const LANE_WIDTH = 2.5;
-const GAME_SPEED_START = 20;
-const OBSTACLE_SPAWN_RATE = 0.05;
+// --- Constants & Config ---
+const LANE_WIDTH = 3.5;
+const LANES = [-LANE_WIDTH, 0, LANE_WIDTH];
+const GAME_SPEED_START = 30;
+const MAX_SPEED = 120;
+const ACCELERATION = 0.5;
 
 interface Game3DProps {
   config: CarConfig;
@@ -17,211 +20,316 @@ interface Game3DProps {
   onExit: () => void;
 }
 
-const MovingRoad = ({ speed }: { speed: number }) => {
-  const mesh = useRef<THREE.Mesh>(null);
-  useFrame((state, delta) => {
-    if (mesh.current) {
-        // Scroll texture logic simulated by moving mesh and resetting
-        mesh.current.position.z += speed * delta;
-        if (mesh.current.position.z > 20) {
-            mesh.current.position.z = -100;
-        }
-    }
-  });
+// --- Scenic Elements ---
 
+const RetroSun = () => {
   return (
-    <mesh ref={mesh} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.5, -50]}>
-      <planeGeometry args={[20, 300, 20, 20]} />
-      <meshStandardMaterial 
-        color="#050510" 
-        roughness={0.8}
-        metalness={0.2}
-      />
-      {/* Grid Lines */}
-      <gridHelper args={[20, 20, 0xff00ff, 0x444444]} rotation={[-Math.PI/2, 0, 0]} position={[0, 0.02, 0]} />
+    <mesh position={[0, 20, -150]}>
+      <circleGeometry args={[40, 64]} />
+      <meshBasicMaterial color={'#ff0055'} fog={false} />
     </mesh>
   );
 };
 
-const Obstacle = ({ position, type }: { position: Vector3, type: 'rock' | 'barrier' }) => {
-    const color = type === 'rock' ? '#FF3366' : '#FF9900';
-    return (
-        <group position={position}>
-            <mesh>
-                <boxGeometry args={[1.5, 1.5, 1.5]} />
-                <meshStandardMaterial 
-                    color={color} 
-                    emissive={color} 
-                    emissiveIntensity={2} 
-                    toneMapped={false} 
-                />
-            </mesh>
-             {/* Reflection on ground */}
-             <mesh position={[0, -0.74, 0]} rotation={[-Math.PI/2, 0, 0]}>
-                <planeGeometry args={[1.8, 1.8]} />
-                <meshBasicMaterial color={color} transparent opacity={0.3} />
-             </mesh>
-        </group>
-    );
-};
-
-const GameScene = ({ config, gameState, setGameState, onGameOver }: any) => {
-  const [playerX, setPlayerX] = useState(0);
-  const [score, setScore] = useState(0);
-  const [speed, setSpeed] = useState(GAME_SPEED_START);
-  
-  // Obstacles state management
-  const [obstacles, setObstacles] = useState<{id: number, pos: Vector3, type: 'rock'|'barrier'}[]>([]);
-  const lastSpawn = useRef(0);
-  const obstacleIdCounter = useRef(0);
-
-  // Input Handling
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (gameState !== GameState.PLAYING) return;
-      if (e.key === 'ArrowLeft') setPlayerX(prev => Math.max(prev - 1, -1));
-      if (e.key === 'ArrowRight') setPlayerX(prev => Math.min(prev + 1, 1));
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [gameState]);
-
-  // Game Loop
+const MovingGrid = ({ speed }: { speed: number }) => {
+  const mesh = useRef<THREE.LineSegments>(null);
   useFrame((state, delta) => {
-    if (gameState !== GameState.PLAYING) return;
-
-    // Increase Score & Speed
-    setScore(s => s + 1);
-    setSpeed(s => Math.min(s + 0.01, 50)); // Cap speed
-
-    // Move Obstacles
-    setObstacles(prev => {
-        const next = prev.map(obs => ({
-            ...obs,
-            pos: new Vector3(obs.pos.x, obs.pos.y, obs.pos.z + speed * delta)
-        })).filter(obs => obs.pos.z < 10); // Remove if passed camera
-        
-        // Collision Detection
-        for (const obs of next) {
-            // Simple box collision
-            if (Math.abs(obs.pos.z - 0) < 1.5 && Math.abs(obs.pos.x - (playerX * LANE_WIDTH)) < 1.0) {
-                setGameState(GameState.GAME_OVER);
-                onGameOver(score);
-            }
-        }
-        return next;
-    });
-
-    // Spawn Obstacles
-    if (state.clock.elapsedTime - lastSpawn.current > (10 / speed)) {
-        if (Math.random() < 0.6) {
-            const lane = Math.floor(Math.random() * 3) - 1; // -1, 0, 1
-            const type = Math.random() > 0.5 ? 'rock' : 'barrier';
-            setObstacles(prev => [
-                ...prev, 
-                { 
-                    id: obstacleIdCounter.current++, 
-                    pos: new Vector3(lane * LANE_WIDTH, 0.75, -100), 
-                    type 
-                }
-            ]);
-            lastSpawn.current = state.clock.elapsedTime;
+    if (mesh.current) {
+        mesh.current.position.z += speed * delta;
+        if (mesh.current.position.z > 20) {
+            mesh.current.position.z = -80;
         }
     }
   });
 
   return (
-    <>
-        <PerspectiveCamera makeDefault position={[0, 4, 8]} rotation={[-0.2, 0, 0]} />
-        
-        {/* Environment */}
-        <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={2} />
-        <fog attach="fog" args={['#030508', 10, 80]} />
-        <ambientLight intensity={0.5} />
-        <spotLight position={[10, 10, 10]} intensity={1} />
-        
-        {/* Dynamic Lights from Player */}
-        <pointLight position={[playerX * LANE_WIDTH, 2, 0]} color={config.color} intensity={2} distance={10} />
-
-        {/* Road Segments (Creating infinite illusion) */}
-        <MovingRoad speed={speed} />
-        <mesh position={[0, -0.6, 0]} rotation={[-Math.PI/2, 0, 0]}>
-             <planeGeometry args={[100, 200]} />
-             <meshBasicMaterial color="#020204" />
+    <group>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, -50]}>
+            <planeGeometry args={[100, 400]} />
+            <meshStandardMaterial color="#050214" roughness={0.1} metalness={0.8} />
         </mesh>
-
-        {/* Player Car */}
-        <group position={[playerX * LANE_WIDTH, 0, 0]}>
-            <ThreeCar config={config} isRotating={false} tilt={playerX * 20} />
-        </group>
-
-        {/* Obstacles */}
-        {obstacles.map(obs => (
-            <Obstacle key={obs.id} position={obs.pos} type={obs.type} />
-        ))}
-    </>
+        
+        <gridHelper 
+            ref={mesh} 
+            args={[200, 100, 0xff0055, 0x220033]} 
+            position={[0, 0.1, -80]} 
+            rotation={[0, 0, 0]}
+        />
+    </group>
   );
 };
 
+const SpeedParticles = ({ speed }: { speed: number }) => {
+    const count = 60;
+    const mesh = useRef<THREE.InstancedMesh>(null);
+    const dummy = useMemo(() => new THREE.Object3D(), []);
+    const particles = useMemo(() => {
+        const temp = [];
+        for(let i=0; i<count; i++) {
+            temp.push({
+                x: (Math.random() - 0.5) * 60,
+                y: (Math.random()) * 20,
+                z: -Math.random() * 100,
+                vel: Math.random() + 0.5
+            });
+        }
+        return temp;
+    }, []);
+
+    useFrame((state, delta) => {
+        if(!mesh.current) return;
+        particles.forEach((p, i) => {
+            p.z += (speed * p.vel + 10) * delta;
+            if(p.z > 10) p.z = -100;
+            dummy.position.set(p.x, p.y, p.z);
+            dummy.scale.set(0.05, 0.05, Math.min(speed * 0.1, 5));
+            dummy.updateMatrix();
+            mesh.current!.setMatrixAt(i, dummy.matrix);
+        });
+        mesh.current.instanceMatrix.needsUpdate = true;
+    });
+
+    return (
+        <instancedMesh ref={mesh} args={[undefined, undefined, count]}>
+            <boxGeometry args={[1, 1, 1]} />
+            <meshBasicMaterial color="#00F6FF" transparent opacity={0.6} />
+        </instancedMesh>
+    );
+};
+
+// --- Gameplay Elements ---
+
+const Obstacle: React.FC<{ position: Vector3; type: 'block' | 'barrier' }> = ({ position, type }) => {
+    const group = useRef<Group>(null);
+    
+    useFrame(() => {
+        if (group.current) {
+            group.current.position.copy(position);
+        }
+    });
+
+    return (
+        <group ref={group}>
+            {type === 'block' ? (
+                <mesh position={[0, 1, 0]}>
+                    <boxGeometry args={[2.5, 2, 2.5]} />
+                    <meshStandardMaterial color="#ff0055" emissive="#550011" emissiveIntensity={2} />
+                    <lineSegments>
+                        <edgesGeometry args={[new THREE.BoxGeometry(2.5, 2, 2.5)]} />
+                        <lineBasicMaterial color="#ffaaaa" />
+                    </lineSegments>
+                </mesh>
+            ) : (
+                <group position={[0, 0.5, 0]}>
+                    <mesh>
+                        <cylinderGeometry args={[0.2, 0.2, 3, 8]} rotation={[0,0,Math.PI/2]} />
+                        <meshStandardMaterial color="#FFFF00" emissive="#AA5500" />
+                    </mesh>
+                    <mesh position={[0, 0.5, 0]}>
+                         <boxGeometry args={[3, 1, 0.2]} />
+                         <meshStandardMaterial color="#222" transparent opacity={0.8} />
+                         <mesh position={[0,0,0.11]}>
+                             <planeGeometry args={[2.8, 0.8]} />
+                             <meshBasicMaterial color="#FFFF00" /> 
+                         </mesh>
+                    </mesh>
+                </group>
+            )}
+        </group>
+    );
+};
+
+const Player = ({ config, targetLane, speed }: { config: CarConfig, targetLane: number, speed: number }) => {
+    const group = useRef<Group>(null);
+    const currentX = useRef(0);
+    const tilt = useRef(0);
+
+    useFrame((state, delta) => {
+        if (!group.current) return;
+        
+        const targetX = LANES[targetLane + 1];
+        
+        currentX.current = MathUtils.lerp(currentX.current, targetX, delta * 10);
+        
+        const diff = targetX - currentX.current;
+        tilt.current = MathUtils.lerp(tilt.current, diff * -0.5, delta * 5);
+
+        group.current.position.x = currentX.current;
+        group.current.rotation.z = tilt.current;
+        
+        group.current.position.y = Math.sin(state.clock.elapsedTime * 20) * 0.02;
+    });
+
+    return (
+        <group ref={group}>
+            <ThreeCar config={config} isRotating={false} tilt={0} />
+            <pointLight position={[0, 0.5, -2]} color="#ff0000" intensity={2} distance={5} />
+        </group>
+    );
+};
+
+const GameController = ({ config, onGameOver, onExit }: any) => {
+    const [gameState, setGameState] = useState<GameState>(GameState.PLAYING);
+    const [lane, setLane] = useState(0); 
+    
+    const obstacles = useRef<{id: number, pos: Vector3, type: 'block'|'barrier'}[]>([]);
+    const nextSpawnZ = useRef(-50);
+    const scoreRef = useRef(0);
+    const speedRef = useRef(GAME_SPEED_START);
+    
+    const scoreTextRef = useRef<any>(null);
+    const speedTextRef = useRef<any>(null);
+    
+    useEffect(() => {
+        const handleKey = (e: KeyboardEvent) => {
+            if (gameState !== GameState.PLAYING) return;
+            if (e.key === 'ArrowLeft') setLane(l => Math.max(l - 1, -1));
+            if (e.key === 'ArrowRight') setLane(l => Math.min(l + 1, 1));
+        };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [gameState]);
+
+    useFrame((state, delta) => {
+        if (gameState !== GameState.PLAYING) return;
+
+        speedRef.current = Math.min(speedRef.current + ACCELERATION * delta, MAX_SPEED);
+        const currentSpeed = speedRef.current;
+        
+        scoreRef.current += currentSpeed * delta;
+        
+        if (scoreTextRef.current) {
+            scoreTextRef.current.text = Math.floor(scoreRef.current).toLocaleString();
+        }
+        if (speedTextRef.current) {
+            speedTextRef.current.text = Math.floor(currentSpeed) + " KM/H";
+        }
+
+        const distanceMoved = currentSpeed * delta;
+        
+        nextSpawnZ.current += distanceMoved; 
+        if (nextSpawnZ.current > 0) { 
+            const zPos = -150 - Math.random() * 50;
+            const lane1 = Math.floor(Math.random() * 3) - 1;
+            const type1 = Math.random() > 0.5 ? 'block' : 'barrier';
+            
+            obstacles.current.push({
+                id: Math.random(),
+                pos: new Vector3(LANES[lane1 + 1], 0, zPos),
+                type: type1
+            });
+
+            if (Math.random() > 0.5 && currentSpeed > 50) {
+                 let lane2 = Math.floor(Math.random() * 3) - 1;
+                 while(lane2 === lane1) lane2 = Math.floor(Math.random() * 3) - 1;
+                 obstacles.current.push({
+                    id: Math.random(),
+                    pos: new Vector3(LANES[lane2 + 1], 0, zPos),
+                    type: 'block'
+                });
+            }
+
+            nextSpawnZ.current = -20 - (1000 / currentSpeed);
+        }
+
+        obstacles.current.forEach(obs => {
+            obs.pos.z += distanceMoved;
+        });
+
+        const playerX = LANES[lane + 1];
+        
+        const collision = obstacles.current.find(obs => {
+            return Math.abs(obs.pos.z) < 2 && Math.abs(obs.pos.x - playerX) < 1.0; 
+        });
+
+        if (collision) {
+            setGameState(GameState.GAME_OVER);
+            onGameOver(Math.floor(scoreRef.current));
+        }
+
+        obstacles.current = obstacles.current.filter(obs => obs.pos.z < 10);
+    });
+
+    return (
+        <>
+            <PerspectiveCamera makeDefault position={[0, 6, 12]} rotation={[-0.2, 0, 0]} fov={60} />
+            
+            <ambientLight intensity={0.2} />
+            <pointLight position={[10, 10, 10]} intensity={1} color="#00F6FF" />
+            <pointLight position={[-10, 10, 10]} intensity={1} color="#ff0055" />
+            <fog attach="fog" args={['#030508', 20, 120]} />
+
+            <RetroSun />
+            <Stars radius={150} depth={50} count={1000} factor={6} saturation={0} fade speed={1} />
+            <SpeedParticles speed={speedRef.current} />
+            <MovingGrid speed={speedRef.current} />
+
+            <Player config={config} targetLane={lane} speed={speedRef.current} />
+
+            {obstacles.current.map(obs => (
+                <Obstacle key={obs.id} position={obs.pos} type={obs.type} />
+            ))}
+
+            <group position={[0, 8, -15]}>
+                <Text
+                    ref={scoreTextRef}
+                    color="white"
+                    fontSize={1}
+                    anchorX="center"
+                    anchorY="middle"
+                    outlineWidth={0.05}
+                    outlineColor="#00F6FF"
+                >
+                    0
+                </Text>
+                <Text
+                    ref={speedTextRef}
+                    position={[0, -1.2, 0]}
+                    color="#ff0055"
+                    fontSize={0.5}
+                    anchorX="center"
+                    anchorY="middle"
+                >
+                    30 KM/H
+                </Text>
+            </group>
+            
+            {gameState === GameState.GAME_OVER && (
+                 <Float speed={5} rotationIntensity={0.2} floatIntensity={0.2}>
+                    <Text position={[0, 2, 5]} fontSize={2} color="#ff0000" outlineWidth={0.1} outlineColor="white">
+                        CRASHED
+                    </Text>
+                 </Float>
+            )}
+        </>
+    );
+};
+
 export const Game3D: React.FC<Game3DProps> = ({ config, onGameOver, onExit }) => {
-  const [gameState, setGameState] = useState<GameState>(GameState.PLAYING);
-  
   return (
-    <div className="w-full h-full relative bg-nexa-bg">
-        {/* HUD */}
-        <div className="absolute top-0 left-0 w-full p-6 z-10 flex justify-between pointer-events-none">
-            <div className="glass-pro px-6 py-2 rounded-br-2xl border-l-4 border-nexa-accent">
-                <h2 className="text-2xl font-display font-bold italic text-white">SPEED: <span className="text-nexa-accent">MAX</span></h2>
+    <div className="w-full h-full relative bg-black">
+        <div className="absolute inset-0 pointer-events-none z-10 p-8 flex flex-col justify-between">
+            <div className="flex justify-between items-start">
+                <div className="text-white font-display">
+                    <h2 className="text-2xl font-bold text-nexa-accent">NEON RUNNER</h2>
+                    <p className="text-sm opacity-70">AVOID OBSTACLES // SURVIVE</p>
+                </div>
+                <button 
+                    onClick={onExit}
+                    className="pointer-events-auto bg-white/10 hover:bg-white/20 backdrop-blur-md px-4 py-2 rounded text-xs font-bold text-white transition-colors border border-white/10"
+                >
+                    ABORT
+                </button>
             </div>
-            <div className="glass-pro px-6 py-2 rounded-bl-2xl border-r-4 border-nexa-primary">
-                <h2 className="text-2xl font-display font-bold text-white">STATUS: <span className="text-nexa-success animate-pulse">LIVE</span></h2>
+            
+            <div className="text-center opacity-50">
+                <p className="text-xs font-mono tracking-widest text-nexa-primary">USE ARROW KEYS TO STRAFE</p>
             </div>
         </div>
 
-        {/* Controls Overlay */}
-        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-10 text-center pointer-events-none opacity-50">
-            <p className="text-sm font-mono tracking-widest text-nexa-accent">USE ARROW KEYS TO STRAFE</p>
-        </div>
-
-        <button 
-            onClick={onExit}
-            className="absolute top-6 right-1/2 translate-x-1/2 z-50 glass-pro px-4 py-1 rounded text-xs hover:bg-red-500/50 transition-colors pointer-events-auto"
-        >
-            ABORT MISSION
-        </button>
-
-        <Canvas>
-            <GameScene 
-                config={config} 
-                gameState={gameState} 
-                setGameState={setGameState} 
-                onGameOver={onGameOver} 
-            />
+        <Canvas dpr={[1, 1.5]} performance={{ min: 0.5 }}>
+            <GameController config={config} onGameOver={onGameOver} onExit={onExit} />
         </Canvas>
-
-        {gameState === GameState.GAME_OVER && (
-            <div className="absolute inset-0 z-50 bg-black/80 flex items-center justify-center backdrop-blur-sm">
-                 <div className="text-center p-12 glass-pro border-2 border-nexa-warning rounded-2xl relative overflow-hidden">
-                     <div className="absolute inset-0 bg-nexa-warning/10 animate-pulse"></div>
-                     <h1 className="text-6xl font-display font-black text-nexa-warning mb-4 glitch-text">WRECKED</h1>
-                     <p className="text-xl mb-8">SYSTEM FAILURE DETECTED</p>
-                     <div className="flex gap-4 justify-center">
-                         <button 
-                            onClick={() => window.location.reload()}
-                            className="px-8 py-3 bg-nexa-warning text-black font-bold font-display hover:scale-105 transition-transform"
-                         >
-                            REBOOT SYSTEM
-                         </button>
-                         <button 
-                            onClick={onExit}
-                            className="px-8 py-3 border border-white text-white font-bold font-display hover:bg-white hover:text-black transition-colors"
-                         >
-                            RETURN TO BASE
-                         </button>
-                     </div>
-                 </div>
-            </div>
-        )}
     </div>
   );
 };
