@@ -7,7 +7,7 @@ import {
   Environment, 
   Stars,
   Float, 
-  Sparkles,
+  Sparkles, 
   PerspectiveCamera
 } from '@react-three/drei';
 import { 
@@ -36,7 +36,6 @@ import {
   MonitorPlay,
   Rotate3D
 } from 'lucide-react';
-import { BarChart, Bar, Tooltip, ResponsiveContainer } from 'recharts';
 import { FilesetResolver, GestureRecognizer, DrawingUtils } from '@mediapipe/tasks-vision';
 import * as THREE from 'three';
 
@@ -400,15 +399,17 @@ const DashboardView = ({ profile, onAction, carConfig }: any) => {
 
                 <div className="glass-pro rounded-3xl p-6 h-[240px] flex flex-col border border-white/5">
                      <h3 className="text-nexa-muted text-sm font-bold tracking-widest mb-4 flex items-center gap-2"><Activity size={16}/> PERFORMANCE LOG</h3>
-                     <div className="flex-1 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={[
-                                {name: 'M', val: 40}, {name: 'T', val: 65}, {name: 'W', val: 35}, {name: 'T', val: 80}, {name: 'F', val: 55}, {name: 'S', val: 90}, {name: 'S', val: 45}
-                            ]}>
-                                <Tooltip contentStyle={{background: '#0B101B', border: '1px solid #333'}} cursor={{fill: 'rgba(255,255,255,0.05)'}} />
-                                <Bar dataKey="val" fill="#00F6FF" radius={[4,4,0,0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
+                     <div className="flex-1 w-full flex items-end justify-between gap-2 px-2 pb-2">
+                        {[
+                            {name: 'M', val: 40}, {name: 'T', val: 65}, {name: 'W', val: 35}, {name: 'T', val: 80}, {name: 'F', val: 55}, {name: 'S', val: 90}, {name: 'S', val: 45}
+                        ].map((d, i) => (
+                            <div key={i} className="flex flex-col items-center gap-2 w-full h-full justify-end group">
+                                <div className="w-full bg-white/5 rounded-t-[4px] relative overflow-hidden" style={{height: `${d.val}%`}}>
+                                     <div className="absolute inset-0 bg-nexa-accent opacity-60 group-hover:opacity-100 transition-opacity duration-300 shadow-[0_0_15px_rgba(0,246,255,0.3)]"></div>
+                                </div>
+                                <div className="text-[10px] font-mono text-nexa-muted">{d.name}</div>
+                            </div>
+                        ))}
                      </div>
                 </div>
             </div>
