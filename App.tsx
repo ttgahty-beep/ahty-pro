@@ -48,6 +48,10 @@ import { getCrewChiefAdvice } from './services/ai';
 import Hyperspeed from './components/ui/Hyperspeed';
 import MagicBento, { BentoCardProps } from './components/MagicBento';
 
+// --- Global AI Singleton to prevent re-initialization lag ---
+let sharedRecognizer: GestureRecognizer | null = null;
+let recognizerLoading = false;
+
 // --- Immersive Background ---
 const ImmersiveBackground = () => {
     return (
@@ -422,6 +426,14 @@ const DashboardView = ({ profile, onAction, carConfig }: any) => {
 const Garage3DScene = ({ config, gestureRef, gestureActive }: { config: CarConfig, gestureRef: React.MutableRefObject<any>, gestureActive: boolean }) => {
     const groupRef = useRef<THREE.Group>(null);
 
+    // Robust angle difference function
+    const angleDifference = (a: number, b: number) => {
+        let diff = (b - a) % (2 * Math.PI);
+        if (diff < -Math.PI) diff += 2 * Math.PI;
+        if (diff > Math.PI) diff -= 2 * Math.PI;
+        return diff;
+    };
+
     useFrame((state, delta) => {
         if (!groupRef.current) return;
 
@@ -442,12 +454,8 @@ const Garage3DScene = ({ config, gestureRef, gestureActive }: { config: CarConfi
             if (!isNaN(rawZoom) && isFinite(rawZoom)) targetScale = Math.max(0.6, Math.min(1.8, rawZoom));
             
             // Shortest Path Rotation Logic
-            let current = groupRef.current.rotation.y;
-            let diff = targetRot - current;
-            
-            // Normalize diff to -PI to +PI
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            while (diff < -Math.PI) diff += Math.PI * 2;
+            const current = groupRef.current.rotation.y;
+            const diff = angleDifference(current, targetRot);
             
             // Smooth Damp
             groupRef.current.rotation.y += diff * dt * 5;
@@ -486,28 +494,34 @@ const GarageView = ({ config, setConfig }: any) => {
     const [gestureActive, setGestureActive] = useState(false);
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const [recognizer, setRecognizer] = useState<GestureRecognizer | null>(null);
     const [recognizerReady, setRecognizerReady] = useState(false);
     
     // PERFORMANCE FIX: Use Ref for gesture data instead of State to avoid Re-renders loops
     const gestureData = useRef({ rotation: 0, zoom: 1.2 });
-    const [statusText, setStatusText] = useState("INITIALIZING AI...");
+    const [statusText, setStatusText] = useState("AI SYSTEM OFFLINE");
 
     const models: CarModel[] = ['SPEEDSTER', 'TITAN', 'SPECTRE', 'VANGUARD'];
     const currentModelIdx = models.indexOf(config.model);
 
-    // Init MediaPipe
+    // Init MediaPipe ONLY ONCE globally
     useEffect(() => {
-        let vision: any;
-        let newRecognizer: GestureRecognizer;
-
         const init = async () => {
+            if (sharedRecognizer) {
+                setRecognizerReady(true);
+                setStatusText("AI READY. ACTIVATE SENSOR.");
+                return;
+            }
+            
+            if (recognizerLoading) return; // Prevent double load
+            recognizerLoading = true;
+            setStatusText("INITIALIZING NEURAL LINK...");
+
             try {
                 // Use JsDelivr for WASM
-                vision = await FilesetResolver.forVisionTasks(
+                const vision = await FilesetResolver.forVisionTasks(
                     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/wasm"
                 );
-                newRecognizer = await GestureRecognizer.createFromOptions(vision, {
+                sharedRecognizer = await GestureRecognizer.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
                         delegate: "GPU"
@@ -515,12 +529,13 @@ const GarageView = ({ config, setConfig }: any) => {
                     runningMode: "VIDEO",
                     numHands: 1
                 });
-                setRecognizer(newRecognizer);
                 setRecognizerReady(true);
                 setStatusText("AI READY. ACTIVATE SENSOR.");
             } catch (error) {
                 console.error("Failed to load MediaPipe:", error);
                 setStatusText("AI LOAD FAILED");
+            } finally {
+                recognizerLoading = false;
             }
         };
 
@@ -529,7 +544,7 @@ const GarageView = ({ config, setConfig }: any) => {
 
     // Loop
     useEffect(() => {
-        if (!gestureActive || !recognizer || !recognizerReady || !videoRef.current || !canvasRef.current) return;
+        if (!gestureActive || !sharedRecognizer || !recognizerReady || !videoRef.current || !canvasRef.current) return;
         
         let animationFrame: number;
         const video = videoRef.current;
@@ -556,7 +571,7 @@ const GarageView = ({ config, setConfig }: any) => {
         const predict = () => {
              if (video.currentTime !== lastVideoTime) {
                  lastVideoTime = video.currentTime;
-                 const results = recognizer.recognizeForVideo(video, Date.now());
+                 const results = sharedRecognizer!.recognizeForVideo(video, Date.now());
 
                  ctx!.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -628,7 +643,7 @@ const GarageView = ({ config, setConfig }: any) => {
             }
             cancelAnimationFrame(animationFrame);
         };
-    }, [gestureActive, recognizer, recognizerReady, config]);
+    }, [gestureActive, recognizerReady, config]);
 
 
     const cycleModel = (dir: number) => {
@@ -738,7 +753,7 @@ const GarageView = ({ config, setConfig }: any) => {
                  <div className="absolute inset-0 bg-[linear-gradient(rgba(0,246,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(0,246,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
 
                  <Canvas dpr={[1, 1.5]}>
-                     <PerspectiveCamera makeDefault position={[0, 2, 7]} fov={50} />
+                     <PerspectiveCamera makeDefault position={[0, 2, 8]} fov={50} />
                      <Environment preset="city" />
                      <ambientLight intensity={0.5} />
                      <spotLight position={[10, 10, 10]} intensity={1} castShadow />
@@ -746,7 +761,7 @@ const GarageView = ({ config, setConfig }: any) => {
                      {/* OPTIMIZED SCENE: Pass refs, not state */}
                      <Garage3DScene config={config} gestureRef={gestureData} gestureActive={gestureActive} />
 
-                     <OrbitControls enablePan={false} enabled={!gestureActive} minDistance={3} maxDistance={8} />
+                     <OrbitControls enablePan={false} enabled={!gestureActive} minDistance={3} maxDistance={10} />
                      <gridHelper args={[20, 20, 0x444444, 0x111111]} position={[0, -1, 0]} />
                  </Canvas>
             </div>
