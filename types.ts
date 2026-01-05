@@ -20,6 +20,7 @@ export interface UserProfile {
   credits: number;
   rank: string;
   team: string;
+  inventory: string[];
 }
 
 export type CarModel = 'SPEEDSTER' | 'TITAN' | 'SPECTRE' | 'VANGUARD';

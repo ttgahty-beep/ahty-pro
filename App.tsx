@@ -8,7 +8,8 @@ import {
   Stars,
   Float, 
   Sparkles, 
-  PerspectiveCamera
+  PerspectiveCamera,
+  Html
 } from '@react-three/drei';
 import { 
   Trophy, 
@@ -34,7 +35,10 @@ import {
   Crosshair,
   Play,
   MonitorPlay,
-  Rotate3D
+  Rotate3D,
+  Loader,
+  MessageSquare,
+  Send
 } from 'lucide-react';
 import { FilesetResolver, GestureRecognizer, DrawingUtils } from '@mediapipe/tasks-vision';
 import * as THREE from 'three';
@@ -43,13 +47,28 @@ import { AppView, CarConfig, UserProfile, NavItem, CarModel } from './types';
 import { ThreeCar } from './components/ThreeCar';
 import { Game3D } from './components/Game3D'; 
 import { DriveMadGame } from './components/DriveMadGame';
-import { getCrewChiefAdvice } from './services/ai';
+import { getCrewChiefAdvice, getCarAnalysis } from './services/ai';
 import Hyperspeed from './components/ui/Hyperspeed';
 import MagicBento, { BentoCardProps } from './components/MagicBento';
 
 // --- Global AI Singleton to prevent re-initialization lag ---
 let sharedRecognizer: GestureRecognizer | null = null;
 let recognizerLoading = false;
+
+// --- Components ---
+const CircleIcon = (props: any) => <div className="w-6 h-6 rounded-full border-2 border-current" {...props}></div>;
+
+// --- Market Item Definitions ---
+const MARKET_ITEMS = [
+    { id: 'model_titan', name: 'TITAN Chassis', price: 150000, value: 'TITAN', type: 'model', icon: ShieldCheck },
+    { id: 'model_spectre', name: 'SPECTRE Chassis', price: 200000, value: 'SPECTRE', type: 'model', icon: Zap },
+    { id: 'model_vanguard', name: 'VANGUARD Chassis', price: 250000, value: 'VANGUARD', type: 'model', icon: Crosshair },
+    { id: 'paint_gold', name: 'Midas Gold Paint', price: 50000, value: '#FFD700', type: 'color', icon: User },
+    { id: 'paint_stealth', name: 'Stealth Black', price: 40000, value: '#050505', type: 'color', icon: User },
+    { id: 'rim_crimson', name: 'Crimson Rims', price: 20000, value: '#FF0000', type: 'rim', icon: CircleIcon },
+    { id: 'turbo_chip', name: 'Turbo Chip V2', price: 2000, value: 'upgrade_turbo', type: 'upgrade', icon: Cpu },
+];
+
 
 // --- Immersive Background ---
 const ImmersiveBackground = () => {
@@ -69,8 +88,6 @@ const ImmersiveBackground = () => {
         </div>
     );
 };
-
-// --- Components ---
 
 const NotificationToast = ({ message, visible, onClose }: { message: string, visible: boolean, onClose: () => void }) => {
     useEffect(() => {
@@ -421,13 +438,9 @@ const DashboardView = ({ profile, onAction, carConfig }: any) => {
     );
 };
 
-// --- DEDICATED 3D SCENE FOR GARAGE TO AVOID REACT RENDER LOOP ---
-// Fixed logic to normalize rotation and prevent "spin of death" or unstable behavior
-// Added robust NaN checks and delta capping to prevent disappearing meshes
+// --- DEDICATED 3D SCENE FOR GARAGE ---
 const Garage3DScene = ({ config, gestureRef, gestureActive }: { config: CarConfig, gestureRef: React.MutableRefObject<any>, gestureActive: boolean }) => {
     const groupRef = useRef<THREE.Group>(null);
-
-    // Robust angle difference function
     const angleDifference = (a: number, b: number) => {
         let diff = (b - a) % (2 * Math.PI);
         if (diff < -Math.PI) diff += 2 * Math.PI;
@@ -437,45 +450,28 @@ const Garage3DScene = ({ config, gestureRef, gestureActive }: { config: CarConfi
 
     useFrame((state, delta) => {
         if (!groupRef.current) return;
-
-        // CRITICAL FIX: Cap delta time to prevent physics explosions on frame drops (e.g. switching tabs)
         const dt = Math.min(delta, 0.1);
-
         let targetRot = groupRef.current.rotation.y;
         let targetScale = 1.2;
 
         if (gestureActive && gestureRef.current) {
-            // Read from Ref
             const rawRot = gestureRef.current.rotation;
             const rawZoom = gestureRef.current.zoom;
-
-            // Validate inputs to prevent NaN propagation which causes vanishing
             if (!isNaN(rawRot) && isFinite(rawRot)) targetRot = rawRot;
-            // Clamp zoom to safe values to avoid clipping camera
             if (!isNaN(rawZoom) && isFinite(rawZoom)) targetScale = Math.max(0.6, Math.min(1.8, rawZoom));
             
-            // Shortest Path Rotation Logic
             const current = groupRef.current.rotation.y;
             const diff = angleDifference(current, targetRot);
-            
-            // Smooth Damp
             groupRef.current.rotation.y += diff * dt * 5;
             
-            // Smooth Zoom
             const currentScale = groupRef.current.scale.x;
             const newScale = THREE.MathUtils.lerp(currentScale, targetScale, dt * 5);
-            
-            // Safety check before applying scale
             if (!isNaN(newScale) && isFinite(newScale) && newScale > 0.1) {
                 groupRef.current.scale.set(newScale, newScale, newScale);
             }
-            
         } else {
-            // Idle Mode
             groupRef.current.rotation.y += dt * 0.5;
-            // Normalize for long running consistency
             groupRef.current.rotation.y = groupRef.current.rotation.y % (Math.PI * 2);
-
             const currentScale = groupRef.current.scale.x;
             const newScale = THREE.MathUtils.lerp(currentScale, 1.2, dt * 2);
             groupRef.current.scale.set(newScale, newScale, newScale);
@@ -489,20 +485,94 @@ const Garage3DScene = ({ config, gestureRef, gestureActive }: { config: CarConfi
     );
 };
 
+// --- Mini AI Chatbot Widget ---
+const AiChatWidget = () => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [input, setInput] = useState("");
+    const [messages, setMessages] = useState<{role: 'ai'|'user', text: string}[]>([
+        {role: 'ai', text: "Ready for strategic planning. Ask me about your setup."}
+    ]);
+    const [loading, setLoading] = useState(false);
+
+    const handleSend = async () => {
+        if(!input.trim()) return;
+        const userMsg = input;
+        setMessages(prev => [...prev, {role: 'user', text: userMsg}]);
+        setInput("");
+        setLoading(true);
+
+        const response = await getCrewChiefAdvice(userMsg, { speed: 0, score: 0 });
+        setMessages(prev => [...prev, {role: 'ai', text: response}]);
+        setLoading(false);
+    };
+
+    return (
+        <div className="absolute bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+            {isOpen && (
+                <div className="w-80 h-96 glass-pro rounded-xl flex flex-col overflow-hidden border border-nexa-primary/50 animate-fade-in-up shadow-2xl bg-black/90">
+                    <div className="bg-nexa-primary/20 p-3 flex justify-between items-center border-b border-nexa-primary/30">
+                        <span className="font-bold text-nexa-accent text-sm flex items-center gap-2"><Cpu size={14}/> STRATEGY MODULE</span>
+                        <button onClick={() => setIsOpen(false)} className="hover:text-white"><ChevronRight size={16} className="rotate-90"/></button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scroll">
+                        {messages.map((m, i) => (
+                             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[85%] p-2 rounded-lg text-xs ${m.role === 'user' ? 'bg-nexa-primary text-white' : 'bg-white/10 text-gray-200'}`}>
+                                    {m.text}
+                                </div>
+                             </div>
+                        ))}
+                        {loading && <div className="text-xs text-nexa-muted animate-pulse">Thinking...</div>}
+                    </div>
+                    <div className="p-3 bg-white/5 flex gap-2">
+                        <input 
+                            className="flex-1 bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-nexa-accent"
+                            value={input}
+                            onChange={e => setInput(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleSend()}
+                            placeholder="Ask strategy..."
+                        />
+                        <button onClick={handleSend} className="bg-nexa-accent text-black p-1.5 rounded hover:bg-white transition-colors">
+                            <Send size={14}/>
+                        </button>
+                    </div>
+                </div>
+            )}
+            <button 
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-12 h-12 rounded-full bg-nexa-primary text-white flex items-center justify-center shadow-[0_0_20px_#7A3CFF] hover:scale-110 transition-transform border-2 border-white/20"
+            >
+                <MessageSquare size={20} />
+            </button>
+        </div>
+    );
+};
+
 
 // 2. Garage View with Advanced Gesture Control (MediaPipe)
-const GarageView = ({ config, setConfig }: any) => {
+const GarageView = ({ config, setConfig, userInventory }: { config: CarConfig, setConfig: any, userInventory: string[] }) => {
     const [gestureActive, setGestureActive] = useState(false);
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [recognizerReady, setRecognizerReady] = useState(false);
-    
-    // PERFORMANCE FIX: Use Ref for gesture data instead of State to avoid Re-renders loops
     const gestureData = useRef({ rotation: 0, zoom: 1.2 });
     const [statusText, setStatusText] = useState("AI SYSTEM OFFLINE");
 
     const models: CarModel[] = ['SPEEDSTER', 'TITAN', 'SPECTRE', 'VANGUARD'];
     const currentModelIdx = models.indexOf(config.model);
+
+    // Helper to check if item is owned
+    const isOwned = (type: string, value: string) => {
+        if (type === 'model' && value === 'SPEEDSTER') return true;
+        if (type === 'color' && ['#0B101B', '#E0E6ED', '#00F6FF', '#7A3CFF'].includes(value)) return true; // Defaults
+        if (type === 'rim' && ['#E0E6ED', '#00F6FF', '#7A3CFF', '#FF3366'].includes(value)) return true; // Defaults
+
+        // Check if market item exists for this value
+        const marketItem = MARKET_ITEMS.find(i => i.value === value && i.type === type);
+        if (!marketItem) return true; // Assume free if not in market list (simplified)
+        
+        return userInventory.includes(marketItem.id);
+    };
 
     // Init MediaPipe ONLY ONCE globally
     useEffect(() => {
@@ -512,13 +582,10 @@ const GarageView = ({ config, setConfig }: any) => {
                 setStatusText("AI READY. ACTIVATE SENSOR.");
                 return;
             }
-            
-            if (recognizerLoading) return; // Prevent double load
+            if (recognizerLoading) return;
             recognizerLoading = true;
             setStatusText("INITIALIZING NEURAL LINK...");
-
             try {
-                // Use JsDelivr for WASM
                 const vision = await FilesetResolver.forVisionTasks(
                     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/wasm"
                 );
@@ -539,14 +606,12 @@ const GarageView = ({ config, setConfig }: any) => {
                 recognizerLoading = false;
             }
         };
-
         init();
     }, []);
 
     // Loop
     useEffect(() => {
         if (!gestureActive || !sharedRecognizer || !recognizerReady || !videoRef.current || !canvasRef.current) return;
-        
         let animationFrame: number;
         const video = videoRef.current;
         const canvas = canvasRef.current;
@@ -573,46 +638,33 @@ const GarageView = ({ config, setConfig }: any) => {
              if (video.currentTime !== lastVideoTime) {
                  lastVideoTime = video.currentTime;
                  const results = sharedRecognizer!.recognizeForVideo(video, Date.now());
-
                  ctx!.clearRect(0, 0, canvas.width, canvas.height);
 
                  if (results.landmarks && results.landmarks.length > 0) {
                      const hand = results.landmarks[0];
-                     
-                     // Draw Skeleton
                      drawingUtils.drawConnectors(hand, GestureRecognizer.HAND_CONNECTIONS, { color: "#00F6FF", lineWidth: 2 });
                      drawingUtils.drawLandmarks(hand, { color: "#FF3366", lineWidth: 1, radius: 2 });
 
-                     // Logic
                      const gesture = results.gestures.length > 0 ? results.gestures[0][0].categoryName : "None";
-                     const wrist = hand[0]; // Wrist landmark
-                     
-                     // X Control (Rotation) - Map 0.0-1.0 to -PI to PI
-                     // Mirror X because webcam is mirrored usually
+                     const wrist = hand[0]; 
                      const x = 1.0 - wrist.x; 
-                     const targetRot = (x - 0.5) * Math.PI * 2; // Full 360 range roughly
-
-                     // Y Control (Zoom) - Map 0.0-1.0 to 0.8 to 1.8 (Safe range)
+                     const targetRot = (x - 0.5) * Math.PI * 2; 
                      const y = wrist.y;
                      const targetZoom = 0.8 + (y * 1.0);
-                     // Clamp zoom just in case
                      const clampedZoom = Math.max(0.5, Math.min(2.0, targetZoom));
 
-                     // PERFORMANCE FIX: Update Ref, NOT State
                      if (gesture === "Closed_Fist") {
-                         // Direct Control
                          gestureData.current.rotation = targetRot;
                          gestureData.current.zoom = clampedZoom;
-                         
                          if(Date.now() - lastStatusUpdate > 500) {
                              setStatusText("GRIPPED: ROTATING");
                              lastStatusUpdate = Date.now();
                          }
                      } else if (gesture === "Thumb_Up") {
                          thumbUpFrames++;
-                         if (thumbUpFrames === 30) { // Hold for ~0.5s to switch
+                         if (thumbUpFrames === 30) {
                              cycleModel(1);
-                             thumbUpFrames = 0; // Reset
+                             thumbUpFrames = 0;
                          }
                          if(Date.now() - lastStatusUpdate > 500) {
                              setStatusText("SWITCHING MODEL...");
@@ -625,7 +677,6 @@ const GarageView = ({ config, setConfig }: any) => {
                              lastStatusUpdate = Date.now();
                          }
                      }
-
                  } else {
                      if(Date.now() - lastStatusUpdate > 1000) {
                          setStatusText("NO HAND DETECTED");
@@ -635,9 +686,7 @@ const GarageView = ({ config, setConfig }: any) => {
              }
              animationFrame = requestAnimationFrame(predict);
         };
-
         startWebcam();
-
         return () => {
             if (video.srcObject) {
                  (video.srcObject as MediaStream).getTracks().forEach(t => t.stop());
@@ -646,9 +695,15 @@ const GarageView = ({ config, setConfig }: any) => {
         };
     }, [gestureActive, recognizerReady, config]);
 
-
     const cycleModel = (dir: number) => {
-        const nextIdx = (currentModelIdx + dir + models.length) % models.length;
+        let nextIdx = currentModelIdx;
+        let count = 0;
+        // Cycle until we find an owned model or full loop
+        do {
+            nextIdx = (nextIdx + dir + models.length) % models.length;
+            count++;
+        } while (!isOwned('model', models[nextIdx]) && count < models.length);
+        
         setConfig({ ...config, model: models[nextIdx] });
     };
 
@@ -677,8 +732,6 @@ const GarageView = ({ config, setConfig }: any) => {
                             <>
                                 <video ref={videoRef} className="hidden" playsInline muted></video>
                                 <canvas ref={canvasRef} width={320} height={240} className="w-full h-full object-cover scale-x-[-1]"></canvas>
-                                
-                                {/* Overlay HUD */}
                                 <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-2">
                                      <div className="flex justify-between text-[8px] font-mono text-nexa-accent">
                                          <span>CAM_FEED: 320x240</span>
@@ -698,7 +751,7 @@ const GarageView = ({ config, setConfig }: any) => {
                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                  <div className="text-center">
                                      <Scan size={32} className={`mx-auto mb-2 ${recognizerReady ? 'text-nexa-accent' : 'text-nexa-muted animate-pulse'}`}/>
-                                     <p className="text-[10px] text-nexa-muted font-mono">{recognizerReady ? 'SYSTEM READY' : 'DOWNLOADING MODEL...'}</p>
+                                     <p className="text-[10px] text-nexa-muted font-mono font-bold">{recognizerReady ? 'SYSTEM READY' : 'DOWNLOADING MODEL...'}</p>
                                  </div>
                              </div>
                          )}
@@ -728,17 +781,37 @@ const GarageView = ({ config, setConfig }: any) => {
                     <div>
                         <label className="text-xs font-bold text-nexa-accent tracking-widest block mb-2">PAINT</label>
                         <div className="flex flex-wrap gap-2">
-                            {['#0B101B', '#E0E6ED', '#FF3366', '#00F6FF', '#7A3CFF', '#FFFF00'].map(c => (
-                                <button key={c} onClick={() => setConfig({...config, color: c})} className="w-8 h-8 rounded border border-white/20 transition-transform hover:scale-110" style={{backgroundColor: c}}/>
-                            ))}
+                            {['#0B101B', '#E0E6ED', '#FF3366', '#00F6FF', '#7A3CFF', '#FFFF00', '#FFD700', '#050505'].map(c => {
+                                const owned = isOwned('color', c);
+                                return (
+                                    <button 
+                                        key={c} 
+                                        onClick={() => owned && setConfig({...config, color: c})} 
+                                        className={`w-8 h-8 rounded border transition-transform relative ${owned ? 'border-white/20 hover:scale-110' : 'border-white/5 opacity-40 cursor-not-allowed'}`}
+                                        style={{backgroundColor: c}}
+                                    >
+                                        {!owned && <div className="absolute inset-0 flex items-center justify-center text-black/50"><Lock size={12}/></div>}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
                     <div>
                         <label className="text-xs font-bold text-nexa-accent tracking-widest block mb-2">RIMS</label>
                         <div className="flex flex-wrap gap-2">
-                            {['#E0E6ED', '#00F6FF', '#7A3CFF', '#FF3366'].map(c => (
-                                <button key={c} onClick={() => setConfig({...config, rimColor: c})} className="w-8 h-8 rounded-full border-2 border-white/20 transition-transform hover:scale-110" style={{borderColor: c}}/>
-                            ))}
+                            {['#E0E6ED', '#00F6FF', '#7A3CFF', '#FF3366', '#FFD700', '#FF0000'].map(c => {
+                                const owned = isOwned('rim', c);
+                                return (
+                                    <button 
+                                        key={c} 
+                                        onClick={() => owned && setConfig({...config, rimColor: c})} 
+                                        className={`w-8 h-8 rounded-full border-2 transition-transform relative ${owned ? 'border-white/20 hover:scale-110' : 'border-white/5 opacity-40 cursor-not-allowed'}`}
+                                        style={{borderColor: c}}
+                                    >
+                                         {!owned && <div className="absolute inset-0 flex items-center justify-center text-white/50"><Lock size={12}/></div>}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
                     <div className="flex gap-4">
@@ -750,21 +823,21 @@ const GarageView = ({ config, setConfig }: any) => {
 
             {/* 3D Preview */}
             <div className="flex-1 relative bg-gradient-to-br from-nexa-bg to-nexa-panel overflow-hidden">
-                 {/* Background Grid Elements */}
                  <div className="absolute inset-0 bg-[linear-gradient(rgba(0,246,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(0,246,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
-
                  <Canvas dpr={[1, 1.5]}>
                      <PerspectiveCamera makeDefault position={[0, 2, 8]} fov={50} />
-                     <Environment preset="city" />
+                     <Suspense fallback={<Html center><div className="text-nexa-accent font-mono animate-pulse text-xs">LOADING ENV...</div></Html>}>
+                         <Environment preset="city" />
+                         <Garage3DScene config={config} gestureRef={gestureData} gestureActive={gestureActive} />
+                     </Suspense>
                      <ambientLight intensity={0.5} />
                      <spotLight position={[10, 10, 10]} intensity={1} castShadow />
-                     
-                     {/* OPTIMIZED SCENE: Pass refs, not state */}
-                     <Garage3DScene config={config} gestureRef={gestureData} gestureActive={gestureActive} />
-
                      <OrbitControls enablePan={false} enabled={!gestureActive} minDistance={3} maxDistance={10} />
                      <gridHelper args={[20, 20, 0x444444, 0x111111]} position={[0, -1, 0]} />
                  </Canvas>
+                 
+                 {/* Mini Chat Widget */}
+                 <AiChatWidget />
             </div>
         </div>
     );
@@ -806,18 +879,7 @@ const LeaderboardView = () => (
 );
 
 // 4. Market
-const MarketView = ({ credits, setCredits }: any) => {
-    const items = [
-        { id: 1, name: "Turbo Chip V2", price: 2000, icon: Cpu },
-        { id: 2, name: "Gold Rims", price: 1500, icon: CircleIcon },
-        { id: 3, name: "Stealth Paint", price: 3000, icon: User }, // Placeholder icon
-        { id: 4, name: "Nitrous Kit", price: 5000, icon: Zap },
-    ];
-
-    const buy = (price: number) => {
-        if(credits >= price) setCredits(credits - price);
-    };
-
+const MarketView = ({ credits, onBuy, inventory }: { credits: number, onBuy: (id: string, price: number, name: string) => void, inventory: string[] }) => {
     return (
         <div className="pt-32 px-6 md:px-20 max-w-6xl mx-auto h-screen animate-fade-in-up">
             <div className="flex justify-between items-center mb-8">
@@ -827,28 +889,32 @@ const MarketView = ({ credits, setCredits }: any) => {
                 </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                {items.map(item => (
-                    <div key={item.id} className="glass-pro p-6 rounded-2xl border border-white/5 hover:border-nexa-success/50 transition-all group">
-                        <div className="h-32 bg-black/40 rounded-xl mb-4 flex items-center justify-center">
-                            <item.icon size={48} className="text-white/20 group-hover:text-nexa-success transition-colors"/>
+                {MARKET_ITEMS.map(item => {
+                    const owned = inventory.includes(item.id);
+                    return (
+                        <div key={item.id} className="glass-pro p-6 rounded-2xl border border-white/5 hover:border-nexa-success/50 transition-all group">
+                            <div className="h-32 bg-black/40 rounded-xl mb-4 flex items-center justify-center">
+                                <item.icon size={48} className="text-white/20 group-hover:text-nexa-success transition-colors"/>
+                            </div>
+                            <h3 className="font-bold text-white text-lg">{item.name}</h3>
+                            <p className="text-nexa-success font-mono mb-4">{item.price.toLocaleString()} CR</p>
+                            <button 
+                                onClick={() => !owned && onBuy(item.id, item.price, item.name)}
+                                disabled={owned || credits < item.price}
+                                className={`w-full py-2 rounded font-bold text-sm transition-all ${
+                                    owned ? 'bg-white/10 text-white/50 cursor-default' : 
+                                    credits >= item.price ? 'bg-nexa-success text-black hover:bg-white' : 'bg-white/10 text-white/30 cursor-not-allowed'
+                                }`}
+                            >
+                                {owned ? 'OWNED' : credits >= item.price ? 'PURCHASE' : 'INSUFFICIENT FUNDS'}
+                            </button>
                         </div>
-                        <h3 className="font-bold text-white text-lg">{item.name}</h3>
-                        <p className="text-nexa-success font-mono mb-4">{item.price} CR</p>
-                        <button 
-                            onClick={() => buy(item.price)}
-                            disabled={credits < item.price}
-                            className={`w-full py-2 rounded font-bold text-sm ${credits >= item.price ? 'bg-nexa-success text-black hover:bg-white' : 'bg-white/10 text-white/30 cursor-not-allowed'}`}
-                        >
-                            {credits >= item.price ? 'PURCHASE' : 'INSUFFICIENT FUNDS'}
-                        </button>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );
 };
-const CircleIcon = (props: any) => <div className="w-6 h-6 rounded-full border-2 border-current" {...props}></div>;
-
 
 // 5. Events
 const EventsView = () => (
@@ -950,9 +1016,10 @@ const App = () => {
     name: "Commander",
     level: 1,
     xp: 0,
-    credits: 5000,
+    credits: 500000,
     rank: "ROOKIE",
-    team: "NEXA"
+    team: "NEXA",
+    inventory: [] // Starts empty, logic assumes default items are free
   });
 
   const [car, setCar] = useState<CarConfig>({
@@ -974,6 +1041,18 @@ const App = () => {
       setShowNotification(true);
   };
 
+  const handleBuy = (id: string, price: number, name: string) => {
+      if (user.credits >= price) {
+          setUser(prev => ({
+              ...prev,
+              credits: prev.credits - price,
+              inventory: [...prev.inventory, id]
+          }));
+          setNotificationMsg(`ACQUIRED: ${name.toUpperCase()}`);
+          setShowNotification(true);
+      }
+  };
+
   const renderContent = () => {
       if (view === AppView.INTRO && !authStep) {
           return <IntroSequence onComplete={() => setAuthStep(true)} />;
@@ -984,11 +1063,11 @@ const App = () => {
 
       switch(view) {
           case AppView.DASHBOARD: return <DashboardView profile={user} onAction={setView} carConfig={car} />;
-          case AppView.GARAGE: return <GarageView config={car} setConfig={setCar} />;
+          case AppView.GARAGE: return <GarageView config={car} setConfig={setCar} userInventory={user.inventory} />;
           case AppView.GAME: return <Game3D config={car} onExit={() => setView(AppView.DASHBOARD)} onGameOver={(score) => { setUser(prev => ({...prev, xp: prev.xp + score, credits: prev.credits + Math.floor(score/10) })); }} />;
           case AppView.ARCADE: return <DriveMadGame onExit={() => setView(AppView.DASHBOARD)} config={car} />;
           case AppView.LEADERBOARD: return <LeaderboardView />;
-          case AppView.MARKET: return <MarketView credits={user.credits} setCredits={(c: number) => setUser({...user, credits: c})} />;
+          case AppView.MARKET: return <MarketView credits={user.credits} onBuy={handleBuy} inventory={user.inventory} />;
           case AppView.EVENTS: return <EventsView />;
           case AppView.TROPHY_ROOM: return <TrophyView />;
           case AppView.AI_CHIEF: return <AiChiefView />;
