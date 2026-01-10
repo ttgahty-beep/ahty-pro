@@ -30,7 +30,7 @@ export const getCrewChiefAdvice = async (context: string, stats: any): Promise<s
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.0-flash-exp',
       contents: prompt,
       config: {
         maxOutputTokens: 100,
@@ -60,7 +60,7 @@ export const getCarAnalysis = async (config: any): Promise<string> => {
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.0-flash-exp',
       contents: prompt,
       config: {
         maxOutputTokens: 200,
@@ -132,30 +132,34 @@ export const processShadowCommand = async (transcript: string, currentConfig: an
     // Format history for context
     const historyContext = history.map(h => `${h.role === 'user' ? 'Boss' : 'Shadow'}: ${h.text}`).join('\n');
     
+    // Sanitize transcript to prevent prompt breaking
+    const safeTranscript = transcript.replace(/"/g, "'");
+
     const prompt = `
       Chat History:
       ${historyContext}
       
       Current Car Config: ${JSON.stringify(currentConfig)}
       
-      Boss (User) says: "${transcript}"
+      Boss (User) says: "${safeTranscript}"
       
       Respond with valid JSON only.
     `;
 
+    // Attempt generation with robust model
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.0-flash-exp',
       contents: prompt,
       config: {
         systemInstruction: SHADOW_SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
-        maxOutputTokens: 4000,
+        maxOutputTokens: 2000,
         temperature: 0.7
       }
     });
     
     const text = response.text;
-    if (!text) return { voiceResponse: "Processing error.", actions: [] };
+    if (!text) throw new Error("No response text from AI");
     
     let jsonStr = text.trim();
     // Aggressive JSON extraction to prevent markdown issues
@@ -169,9 +173,17 @@ export const processShadowCommand = async (transcript: string, currentConfig: an
         jsonStr = jsonStr.replace(/```json/g, "").replace(/```/g, "").trim();
     }
 
-    return JSON.parse(jsonStr);
+    try {
+        return JSON.parse(jsonStr);
+    } catch (parseError) {
+        console.error("JSON Parse Error:", parseError, "Raw:", jsonStr);
+        // Fallback for malformed JSON but likely contains a response
+        return { voiceResponse: "I understood, but my internal diagnostics are fuzzy. Try again, Boss.", actions: [] };
+    }
+
   } catch (error) {
     console.error("Shadow Error:", error);
-    return { voiceResponse: "I'm having trouble processing that request, Boss.", actions: [] };
+    // More descriptive error for debugging (user sees friendly message)
+    return { voiceResponse: "I'm having trouble processing that request, Boss. Signal interference.", actions: [] };
   }
 };
