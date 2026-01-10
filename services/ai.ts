@@ -30,7 +30,7 @@ export const getCrewChiefAdvice = async (context: string, stats: any): Promise<s
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         maxOutputTokens: 100,
@@ -60,7 +60,7 @@ export const getCarAnalysis = async (config: any): Promise<string> => {
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         maxOutputTokens: 200,
@@ -148,7 +148,7 @@ export const processShadowCommand = async (transcript: string, currentConfig: an
 
     // Attempt generation with robust model
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         systemInstruction: SHADOW_SYSTEM_INSTRUCTION,
@@ -162,15 +162,19 @@ export const processShadowCommand = async (transcript: string, currentConfig: an
     if (!text) throw new Error("No response text from AI");
     
     let jsonStr = text.trim();
+    
     // Aggressive JSON extraction to prevent markdown issues
+    // First, remove markdown wrappers if they exist
+    if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.replace(/^```(json)?\s*/, "").replace(/\s*```$/, "");
+    }
+    
+    // Only attempt substring if braces are found, otherwise trust cleanup
     const firstBrace = jsonStr.indexOf('{');
     const lastBrace = jsonStr.lastIndexOf('}');
     
     if (firstBrace !== -1 && lastBrace !== -1) {
         jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
-    } else {
-        // Fallback cleanup
-        jsonStr = jsonStr.replace(/```json/g, "").replace(/```/g, "").trim();
     }
 
     try {
