@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
 // Lazy initialization prevents top-level crashes if env vars are missing
 const getAiClient = () => {
@@ -11,6 +11,17 @@ const getAiClient = () => {
     return null;
   }
   return new GoogleGenAI({ apiKey: key });
+};
+
+const handleAiError = (error: any, fallbackMessage: string) => {
+    console.error("AI Service Error:", error);
+    
+    // Check for Rate Limit / Quota Exceeded (429)
+    if (error.status === 429 || (error.message && error.message.includes('429'))) {
+        return "SYSTEM OVERLOAD: Neural Link bandwidth exceeded. Cooling down...";
+    }
+    
+    return fallbackMessage;
 };
 
 export const getCrewChiefAdvice = async (context: string, stats: any): Promise<string> => {
@@ -39,8 +50,7 @@ export const getCrewChiefAdvice = async (context: string, stats: any): Promise<s
     
     return response.text || "Systems operational. Drive fast.";
   } catch (error) {
-    console.error("AI Error:", error);
-    return "Connection to HQ unstable. Maintain current trajectory.";
+    return handleAiError(error, "Connection to HQ unstable. Maintain current trajectory.");
   }
 };
 
@@ -69,7 +79,7 @@ export const getCarAnalysis = async (config: any): Promise<string> => {
 
     return response.text || "Configuration analysis complete. Vehicle ready.";
    } catch (error) {
-     return "Analysis offline.";
+     return handleAiError(error, "Analysis offline.");
    }
 }
 
@@ -185,8 +195,13 @@ export const processShadowCommand = async (transcript: string, currentConfig: an
         return { voiceResponse: "I understood, but my internal diagnostics are fuzzy. Try again, Boss.", actions: [] };
     }
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Shadow Error:", error);
+    
+    if (error.status === 429 || (error.message && error.message.includes('429'))) {
+         return { voiceResponse: "My systems are currently overloaded by network traffic. I need a cooldown period, Boss.", actions: [] };
+    }
+
     // More descriptive error for debugging (user sees friendly message)
     return { voiceResponse: "I'm having trouble processing that request, Boss. Signal interference.", actions: [] };
   }
