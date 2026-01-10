@@ -179,12 +179,16 @@ const GameController = ({ config, onGameOver, onExit }: any) => {
     
     const scoreTextRef = useRef<any>(null);
     const speedTextRef = useRef<any>(null);
-    
+
     useEffect(() => {
         const handleKey = (e: KeyboardEvent) => {
             if (gameState !== GameState.PLAYING) return;
-            if (e.key === 'ArrowLeft') setLane(l => Math.max(l - 1, -1));
-            if (e.key === 'ArrowRight') setLane(l => Math.min(l + 1, 1));
+            if (e.key === 'ArrowLeft') {
+                setLane(l => Math.max(l - 1, -1));
+            }
+            if (e.key === 'ArrowRight') {
+                setLane(l => Math.min(l + 1, 1));
+            }
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);

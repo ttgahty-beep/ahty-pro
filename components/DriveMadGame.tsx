@@ -53,8 +53,8 @@ export const DriveMadGame: React.FC<DriveMadGameProps> = ({ onExit }) => {
   const scoreRef = useRef(0);
   const keys = useRef<{ [key: string]: boolean }>({});
   
-  // Entities
-  const player = useRef<Entity>({ id: 0, x: CANVAS_WIDTH/2, y: CANVAS_HEIGHT - 100, w: 40, h: 40, color: '#00F6FF', vx: 0, vy: 0, hp: 1, type: 'PLAYER' });
+  // Entities - INCREASED PLAYER SIZE HERE (w: 80, h: 100)
+  const player = useRef<Entity>({ id: 0, x: CANVAS_WIDTH/2 - 40, y: CANVAS_HEIGHT - 150, w: 80, h: 100, color: '#00F6FF', vx: 0, vy: 0, hp: 1, type: 'PLAYER' });
   const bullets = useRef<Entity[]>([]);
   const enemies = useRef<Entity[]>([]);
   const particles = useRef<Particle[]>([]);
@@ -108,8 +108,8 @@ export const DriveMadGame: React.FC<DriveMadGameProps> = ({ onExit }) => {
       setGameState('PLAYING');
       gameStateRef.current = 'PLAYING';
       
-      // Reset Entities
-      player.current = { id: 0, x: CANVAS_WIDTH/2 - 20, y: CANVAS_HEIGHT - 100, w: 40, h: 50, color: '#00F6FF', vx: 0, vy: 0, hp: 1, type: 'PLAYER' };
+      // Reset Entities - ENSURE LARGE SIZE ON RESET
+      player.current = { id: 0, x: CANVAS_WIDTH/2 - 40, y: CANVAS_HEIGHT - 150, w: 80, h: 100, color: '#00F6FF', vx: 0, vy: 0, hp: 1, type: 'PLAYER' };
       bullets.current = [];
       enemies.current = [];
       particles.current = [];
@@ -283,14 +283,16 @@ export const DriveMadGame: React.FC<DriveMadGameProps> = ({ onExit }) => {
           ctx.closePath();
           ctx.fill();
           
-          // Engine Flame
+          // Engine Flame (Scaled proportionally to width)
           ctx.shadowBlur = 10;
           ctx.shadowColor = '#FF3366';
           ctx.fillStyle = '#FF3366';
           ctx.beginPath();
-          ctx.moveTo(player.current.x + 10, player.current.y + player.current.h);
-          ctx.lineTo(player.current.x + player.current.w - 10, player.current.y + player.current.h);
-          ctx.lineTo(player.current.x + player.current.w/2, player.current.y + player.current.h + (Math.random() * 20 + 10));
+          // Use percentage of width for flame base to scale correctly with larger ship
+          ctx.moveTo(player.current.x + (player.current.w * 0.25), player.current.y + player.current.h);
+          ctx.lineTo(player.current.x + (player.current.w * 0.75), player.current.y + player.current.h);
+          // Make flame length proportional to ship size
+          ctx.lineTo(player.current.x + player.current.w/2, player.current.y + player.current.h + (Math.random() * 30 + 20));
           ctx.fill();
 
           // Draw Bullets

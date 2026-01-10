@@ -1,3 +1,4 @@
+
 import React, { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Group } from 'three';
@@ -24,10 +25,12 @@ export const ThreeCar: React.FC<ThreeCarProps> = ({ config, isRotating = true, t
 
   const materialProps = {
     color: config.color,
-    metalness: config.texture === 'metallic' ? 0.9 : 0.4,
-    roughness: config.texture === 'matte' ? 0.8 : 0.2,
-    clearcoat: config.texture === 'glossy' ? 1 : 0,
-    clearcoatRoughness: 0.1
+    // Tuned for realism: less mirror-like, more like automotive paint
+    metalness: config.texture === 'metallic' ? 0.5 : 0.1,
+    roughness: config.texture === 'matte' ? 0.9 : 0.5,
+    clearcoat: config.texture === 'glossy' ? 0.4 : 0.0,
+    clearcoatRoughness: 0.2,
+    envMapIntensity: 0.7 // Reduce environment reflection intensity
   };
 
   const renderChassis = () => {
@@ -41,12 +44,12 @@ export const ThreeCar: React.FC<ThreeCarProps> = ({ config, isRotating = true, t
             </mesh>
             <mesh position={[0, 1.2, -0.5]}>
               <boxGeometry args={[1.8, 0.6, 2.5]} />
-              <meshStandardMaterial color="#111" />
+              <meshStandardMaterial color="#222" roughness={0.7} />
             </mesh>
              {/* Bullbar */}
              <mesh position={[0, 0.4, 2.3]}>
               <boxGeometry args={[2.0, 0.4, 0.2]} />
-              <meshStandardMaterial color="#333" metalness={0.8} />
+              <meshStandardMaterial color="#333" metalness={0.6} roughness={0.4} />
             </mesh>
           </>
         );
@@ -66,7 +69,7 @@ export const ThreeCar: React.FC<ThreeCarProps> = ({ config, isRotating = true, t
             {/* Cockpit Bubble */}
             <mesh position={[0, 0.5, -0.2]}>
               <sphereGeometry args={[0.35, 32, 32]} />
-              <meshStandardMaterial color="#000" metalness={1} roughness={0} />
+              <meshStandardMaterial color="#111" metalness={0.2} roughness={0.3} />
             </mesh>
           </>
         );
@@ -76,7 +79,7 @@ export const ThreeCar: React.FC<ThreeCarProps> = ({ config, isRotating = true, t
             {/* Main Wedge */}
             <mesh position={[0, 0.5, 0]} rotation={[0.1, 0, 0]}>
               <cylinderGeometry args={[0.8, 1.2, 4.2, 4]} />
-              <meshPhysicalMaterial {...materialProps} flatShading />
+              <meshPhysicalMaterial {...materialProps} flatShading={false} />
             </mesh>
             {/* Light Strip */}
             <mesh position={[0, 0.55, 2.0]}>
@@ -95,7 +98,7 @@ export const ThreeCar: React.FC<ThreeCarProps> = ({ config, isRotating = true, t
             </mesh>
             <mesh position={[0, 0.75, -0.2]}>
               <boxGeometry args={[1.4, 0.5, 2.2]} />
-              <meshPhysicalMaterial color="#000" metalness={0.9} roughness={0.1} />
+              <meshPhysicalMaterial color="#111" metalness={0.2} roughness={0.3} />
             </mesh>
           </>
         );
@@ -120,7 +123,7 @@ export const ThreeCar: React.FC<ThreeCarProps> = ({ config, isRotating = true, t
         <group position={[0, config.model === 'TITAN' ? 1.4 : 0.9, -2.1]}>
           <mesh position={[0, 0.3, 0]}>
              <boxGeometry args={[2.2, 0.05, 0.4]} />
-             <meshPhysicalMaterial color={config.color} />
+             <meshPhysicalMaterial color={config.color} {...materialProps} />
           </mesh>
           <mesh position={[-0.8, 0, 0]}>
              <boxGeometry args={[0.1, 0.6, 0.3]} />
@@ -156,11 +159,12 @@ const Wheel: React.FC<{ position: [number, number, number], rimColor: string, si
     <group position={position} rotation={[0, 0, Math.PI / 2]}>
       <mesh>
         <cylinderGeometry args={[size, size, 0.45, 32]} />
-        <meshStandardMaterial color="#050505" roughness={0.9} />
+        {/* Dark rubber tire */}
+        <meshStandardMaterial color="#1a1a1a" roughness={0.9} metalness={0.1} />
       </mesh>
       <mesh position={[0, 0.23, 0]}>
         <cylinderGeometry args={[size * 0.6, size * 0.6, 0.05, 16]} />
-        <meshStandardMaterial emissive={rimColor} emissiveIntensity={2} color={rimColor} toneMapped={false} />
+        <meshStandardMaterial emissive={rimColor} emissiveIntensity={1.5} color={rimColor} toneMapped={false} />
       </mesh>
     </group>
   );
