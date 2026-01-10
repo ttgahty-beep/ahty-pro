@@ -557,7 +557,12 @@ const GarageView = ({ config, setConfig, userInventory }: { config: CarConfig, s
             } 
             
             // 2. DEACTIVATION COMMANDS
-            if (transcript.toLowerCase().includes("shadow sleep") || transcript.toLowerCase().includes("go offline")) {
+            const lower = transcript.toLowerCase();
+            if (lower.includes("shadow sleep") || 
+                lower.includes("go offline") || 
+                lower.includes("shadow offline") ||
+                lower.includes("deactivate")
+            ) {
                 speak("Powering down. I'll be here when you need me.");
                 setShadowActive(false);
                 return;
