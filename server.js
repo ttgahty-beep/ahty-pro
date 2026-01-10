@@ -56,12 +56,31 @@ function serveFile(filePath, res) {
             res.writeHead(500);
             res.end('Server Error: ' + error.code);
         } else {
-            res.writeHead(200, { 'Content-Type': contentType });
-            res.end(content, 'utf-8');
+            // Runtime Injection for index.html
+            // This allows Render Env Vars to work without rebuilding the client
+            if (ext === '.html') {
+                const apiKey = process.env.API_KEY || '';
+                const htmlStr = content.toString('utf-8');
+                // Replace the placeholder with the actual server-side env var
+                const injectedHtml = htmlStr.replace(
+                    'window.env = { API_KEY: "" }', 
+                    `window.env = { API_KEY: "${apiKey}" }`
+                );
+                res.writeHead(200, { 'Content-Type': contentType });
+                res.end(injectedHtml, 'utf-8');
+            } else {
+                res.writeHead(200, { 'Content-Type': contentType });
+                res.end(content);
+            }
         }
     });
 }
 
 server.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}/`);
+  if (process.env.API_KEY) {
+      console.log('Gemini API Key detected in environment variables.');
+  } else {
+      console.warn('WARNING: Gemini API Key NOT found in environment variables.');
+  }
 });

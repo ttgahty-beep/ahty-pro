@@ -8,6 +8,8 @@
     <script>
       // Polyfill process to prevent "process is not defined" errors in some npm packages
       window.process = { env: { NODE_ENV: 'production' } };
+      // Runtime API Key Injection Placeholder
+      window.env = { API_KEY: "" };
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>

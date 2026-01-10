@@ -3,7 +3,9 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 // Lazy initialization prevents top-level crashes if env vars are missing
 const getAiClient = () => {
-  const key = process.env.API_KEY;
+  // Support both build-time and runtime-injected keys
+  const key = (window as any).env?.API_KEY || process.env.API_KEY;
+  
   if (!key) {
     console.warn("NEXA SYSTEM WARNING: API Key not found. AI features will be offline.");
     return null;
