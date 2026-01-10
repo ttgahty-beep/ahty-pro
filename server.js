@@ -59,7 +59,8 @@ function serveFile(filePath, res) {
             // Runtime Injection for index.html
             // This allows Render Env Vars to work without rebuilding the client
             if (ext === '.html') {
-                const apiKey = process.env.API_KEY || '';
+                // Use provided key as fallback if env var is missing
+                const apiKey = process.env.API_KEY || 'AIzaSyCig6dk3C-M04kzTEAAipBTfJ31TYyK_5c';
                 const htmlStr = content.toString('utf-8');
                 // Replace the placeholder with the actual server-side env var
                 const injectedHtml = htmlStr.replace(
@@ -81,6 +82,6 @@ server.listen(PORT, () => {
   if (process.env.API_KEY) {
       console.log('Gemini API Key detected in environment variables.');
   } else {
-      console.warn('WARNING: Gemini API Key NOT found in environment variables.');
+      console.log('Using default embedded Gemini API Key.');
   }
 });

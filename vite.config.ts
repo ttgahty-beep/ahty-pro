@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       // Use logical OR to ensure it's at least an empty string if undefined, preventing some build issues
-      'process.env.API_KEY': JSON.stringify(env.API_KEY || '')
+      'process.env.API_KEY': JSON.stringify(env.API_KEY || 'AIzaSyCig6dk3C-M04kzTEAAipBTfJ31TYyK_5c')
     }
   };
 });
