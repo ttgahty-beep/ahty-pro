@@ -490,9 +490,19 @@ const GarageView = ({ config, setConfig, userInventory }: { config: CarConfig, s
     const [shadowText, setShadowText] = useState("");
     const recognitionRef = useRef<any>(null);
     const [chatHistory, setChatHistory] = useState<{role: string, text: string}[]>([]);
+    
+    // Refs for stable closure access in speech recognition callbacks
+    const configRef = useRef(config);
+    const chatHistoryRef = useRef(chatHistory);
+    const shadowActiveRef = useRef(shadowActive);
 
     const models: CarModel[] = ['SPEEDSTER', 'TITAN', 'SPECTRE', 'VANGUARD'];
     const currentModelIdx = models.indexOf(config.model);
+    
+    // Sync state to refs
+    useEffect(() => { configRef.current = config; }, [config]);
+    useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
+    useEffect(() => { shadowActiveRef.current = shadowActive; }, [shadowActive]);
     
     // Play Idle Audio on Mount
     useEffect(() => {
@@ -526,9 +536,14 @@ const GarageView = ({ config, setConfig, userInventory }: { config: CarConfig, s
             const last = event.results.length - 1;
             const transcript = event.results[last][0].transcript.trim();
             console.log("Voice Input:", transcript);
+            
+            // Access state via refs to avoid closure staleness without dependency updates
+            const isShadowActive = shadowActiveRef.current;
+            const currentConfig = configRef.current;
+            const currentHistory = chatHistoryRef.current;
 
             // 1. WAKE WORD DETECTION
-            if (!shadowActive) {
+            if (!isShadowActive) {
                 if (transcript.toLowerCase().includes("shadow")) {
                     setShadowActive(true);
                     const greetings = [
@@ -550,7 +565,7 @@ const GarageView = ({ config, setConfig, userInventory }: { config: CarConfig, s
 
             // 3. COMMAND & CHAT PROCESSING
             setShadowProcessing(true);
-            const result = await processShadowCommand(transcript, config, chatHistory);
+            const result = await processShadowCommand(transcript, currentConfig, currentHistory);
             setShadowProcessing(false);
 
             if (result.voiceResponse) {
@@ -563,7 +578,7 @@ const GarageView = ({ config, setConfig, userInventory }: { config: CarConfig, s
 
             if (result.actions && Array.isArray(result.actions)) {
                 // Execute Multiple Actions Sequentially
-                const newConfig = { ...config };
+                const newConfig = { ...currentConfig };
                 let changed = false;
 
                 result.actions.forEach((action: any) => {
@@ -582,7 +597,7 @@ const GarageView = ({ config, setConfig, userInventory }: { config: CarConfig, s
                             if(p.enabled !== undefined) { newConfig.neon = p.enabled; changed = true; }
                             break;
                         case 'setModel':
-                            if(p.model && models.includes(p.model as CarModel)) { 
+                            if(p.model && ['SPEEDSTER', 'TITAN', 'SPECTRE', 'VANGUARD'].includes(p.model)) { 
                                 newConfig.model = p.model as CarModel; 
                                 changed = true; 
                             }
@@ -608,18 +623,40 @@ const GarageView = ({ config, setConfig, userInventory }: { config: CarConfig, s
         };
 
         recognition.onerror = (event: any) => {
+            // Silently ignore no-speech errors to prevent console spam
+            if (event.error === 'no-speech') return;
+            
             console.error("Speech Recognition Error", event.error);
-            // If error is 'no-speech' and active, keep going. If network, maybe stop.
+            // If network error, disable to prevent loops
             if(event.error === 'network') setShadowActive(false);
         };
+        
+        // Auto-restart on end to simulate continuous listening
+        recognition.onend = () => {
+             if (recognitionRef.current) {
+                 try {
+                     recognitionRef.current.start();
+                 } catch (e) {
+                     // Ignore start errors (e.g. if already started)
+                 }
+             }
+        };
 
-        recognition.start();
+        try {
+            recognition.start();
+        } catch(e) { console.log("Recognition start failed", e); }
+        
         recognitionRef.current = recognition;
 
         return () => {
-            if (recognitionRef.current) recognitionRef.current.stop();
+            // Cleanup: remove onend to prevent restart loop during unmount
+            if (recognitionRef.current) {
+                recognitionRef.current.onend = null;
+                recognitionRef.current.stop();
+                recognitionRef.current = null;
+            }
         };
-    }, [shadowActive, config, chatHistory]);
+    }, []); // Empty dependency array ensures stable instance
 
 
     // Helper to check if item is owned
