@@ -60,7 +60,8 @@ function serveFile(filePath, res) {
             // This allows Render Env Vars to work without rebuilding the client
             if (ext === '.html') {
                 // Use provided key as fallback if env var is missing
-                const apiKey = process.env.API_KEY || 'AIzaSyCig6dk3C-M04kzTEAAipBTfJ31TYyK_5c';
+                // NOTE: For best security, set 'API_KEY' in your Render Dashboard Environment Variables
+                const apiKey = process.env.API_KEY || 'AIzaSyCCBh0pg5FKJ6WDTrWZj2ySrQZu2ACHPEo';
                 const htmlStr = content.toString('utf-8');
                 
                 // Robust Regex Replacement for API Key Injection

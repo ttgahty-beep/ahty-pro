@@ -211,8 +211,9 @@ export const processShadowCommand = async (transcript: string, currentConfig: an
     let jsonStr = text.trim();
     
     // Aggressive JSON extraction to prevent markdown issues
+    // Support clearing both ```json and just ```
     if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```(json)?\s*/, "").replace(/\s*```$/, "");
+      jsonStr = jsonStr.replace(/^```(json)?\s*/i, "").replace(/\s*```$/, "");
     }
     
     const firstBrace = jsonStr.indexOf('{');
@@ -221,6 +222,9 @@ export const processShadowCommand = async (transcript: string, currentConfig: an
     if (firstBrace !== -1 && lastBrace !== -1) {
         jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
     }
+    
+    // Remove potential JS comments if model hallucinated them
+    jsonStr = jsonStr.replace(/\/\/.*$/gm, '');
 
     try {
         return JSON.parse(jsonStr);
@@ -247,10 +251,12 @@ export const processShadowCommand = async (transcript: string, currentConfig: an
     if (status === 403 || msg.includes('403') || msg.includes('API key')) {
          return { voiceResponse: "Security Alert: API Key invalid or expired. Please check credentials.", actions: [] };
     }
-
-    // Return the actual error message in the voice response for debugging during development
-    // In production you might want to hide this, but for fixing "Signal Interference" we need to see it.
     
-    return { voiceResponse: "I'm having trouble processing that request, Boss. Signal interference.", actions: [] };
+    if (status === 400) {
+        return { voiceResponse: "Command Malformed. Please restate clearly.", actions: [] };
+    }
+
+    // Return the actual error message code in the voice response for debugging
+    return { voiceResponse: `I'm having trouble processing that request. Signal interference (${status || 'Unknown'}).`, actions: [] };
   }
 };
