@@ -62,11 +62,13 @@ function serveFile(filePath, res) {
                 // Use provided key as fallback if env var is missing
                 const apiKey = process.env.API_KEY || 'AIzaSyCig6dk3C-M04kzTEAAipBTfJ31TYyK_5c';
                 const htmlStr = content.toString('utf-8');
-                // Replace the placeholder with the actual server-side env var
+                
+                // Robust Regex Replacement for API Key Injection
                 const injectedHtml = htmlStr.replace(
-                    'window.env = { API_KEY: "" }', 
-                    `window.env = { API_KEY: "${apiKey}" }`
+                    /window\.env\s*=\s*\{\s*API_KEY:\s*(""|'')\s*\};?/, 
+                    `window.env = { API_KEY: "${apiKey}" };`
                 );
+                
                 res.writeHead(200, { 'Content-Type': contentType });
                 res.end(injectedHtml, 'utf-8');
             } else {

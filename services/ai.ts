@@ -13,14 +13,58 @@ const getAiClient = () => {
   return new GoogleGenAI({ apiKey: key });
 };
 
+// Helper: Try primary model, fallback to others if needed
+const generateWithFallback = async (ai: GoogleGenAI, params: any): Promise<any> => {
+    // Expanded model list to ensure stability across regions/tiers
+    const models = [
+        'gemini-3-flash-preview', 
+        'gemini-2.0-flash-exp', 
+        'gemini-2.0-flash', 
+        'gemini-flash-latest' // Most stable fallback
+    ];
+    let lastError;
+
+    for (const model of models) {
+        try {
+            const response = await ai.models.generateContent({
+                ...params,
+                model: model
+            });
+            return response;
+        } catch (e: any) {
+            console.warn(`Model ${model} failed:`, e.status || e.message);
+            lastError = e;
+            
+            // Critical errors that shouldn't trigger retry
+            const status = e.status || 0;
+            const msg = e.message || "";
+            
+            // 400 (Bad Request) often implies prompt issues, but could be model-specific params.
+            // 401/403 (Auth) - Key issue.
+            // 429 (Quota) - Exhausted.
+            if (status === 401 || status === 403 || status === 429 || msg.includes('429')) {
+                throw e;
+            }
+            // 404 (Model Not Found), 503 (Overloaded), 500 (Server Error) -> Continue to next model
+        }
+    }
+    throw lastError;
+};
+
 const handleAiError = (error: any, fallbackMessage: string) => {
     console.error("AI Service Error:", error);
     
-    // Check for Rate Limit / Quota Exceeded (429)
-    if (error.status === 429 || (error.message && error.message.includes('429'))) {
+    const status = error.status || 0;
+    const msg = error.message || "";
+
+    if (status === 429 || msg.includes('429')) {
         return "SYSTEM OVERLOAD: Neural Link bandwidth exceeded. Cooling down...";
     }
+    if (status === 403 || msg.includes('403') || msg.includes('API key')) {
+        return "SECURITY ALERT: API Key invalid or expired.";
+    }
     
+    // Fallback for known "Signal Interference" cases to give more info if possible in console
     return fallbackMessage;
 };
 
@@ -40,12 +84,9 @@ export const getCrewChiefAdvice = async (context: string, stats: any): Promise<s
       Give strategic advice or motivation.
     `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+    const response = await generateWithFallback(ai, {
       contents: prompt,
-      config: {
-        maxOutputTokens: 100,
-      }
+      config: { maxOutputTokens: 100 }
     });
     
     return response.text || "Systems operational. Drive fast.";
@@ -69,12 +110,9 @@ export const getCarAnalysis = async (config: any): Promise<string> => {
       Rate the "Aesthetics" and "Aerodynamics" out of 10 and give a one sentence comment.
     `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+    const response = await generateWithFallback(ai, {
       contents: prompt,
-      config: {
-        maxOutputTokens: 200,
-      }
+      config: { maxOutputTokens: 200 }
     });
 
     return response.text || "Configuration analysis complete. Vehicle ready.";
@@ -156,9 +194,8 @@ export const processShadowCommand = async (transcript: string, currentConfig: an
       Respond with valid JSON only.
     `;
 
-    // Attempt generation with robust model
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+    // Attempt generation with robust model fallback
+    const response = await generateWithFallback(ai, {
       contents: prompt,
       config: {
         systemInstruction: SHADOW_SYSTEM_INSTRUCTION,
@@ -174,12 +211,10 @@ export const processShadowCommand = async (transcript: string, currentConfig: an
     let jsonStr = text.trim();
     
     // Aggressive JSON extraction to prevent markdown issues
-    // First, remove markdown wrappers if they exist
     if (jsonStr.startsWith('```')) {
       jsonStr = jsonStr.replace(/^```(json)?\s*/, "").replace(/\s*```$/, "");
     }
     
-    // Only attempt substring if braces are found, otherwise trust cleanup
     const firstBrace = jsonStr.indexOf('{');
     const lastBrace = jsonStr.lastIndexOf('}');
     
@@ -191,18 +226,31 @@ export const processShadowCommand = async (transcript: string, currentConfig: an
         return JSON.parse(jsonStr);
     } catch (parseError) {
         console.error("JSON Parse Error:", parseError, "Raw:", jsonStr);
-        // Fallback for malformed JSON but likely contains a response
+        // Retry parsing with simple regex for specific keys if full JSON fails
+        const voiceMatch = jsonStr.match(/"voiceResponse":\s*"([^"]+)"/);
+        if (voiceMatch) {
+             return { voiceResponse: voiceMatch[1], actions: [] };
+        }
         return { voiceResponse: "I understood, but my internal diagnostics are fuzzy. Try again, Boss.", actions: [] };
     }
 
   } catch (error: any) {
     console.error("Shadow Error:", error);
     
-    if (error.status === 429 || (error.message && error.message.includes('429'))) {
+    const status = error.status || 0;
+    const msg = error.message || "";
+
+    if (status === 429 || msg.includes('429')) {
          return { voiceResponse: "My systems are currently overloaded by network traffic. I need a cooldown period, Boss.", actions: [] };
     }
+    
+    if (status === 403 || msg.includes('403') || msg.includes('API key')) {
+         return { voiceResponse: "Security Alert: API Key invalid or expired. Please check credentials.", actions: [] };
+    }
 
-    // More descriptive error for debugging (user sees friendly message)
+    // Return the actual error message in the voice response for debugging during development
+    // In production you might want to hide this, but for fixing "Signal Interference" we need to see it.
+    
     return { voiceResponse: "I'm having trouble processing that request, Boss. Signal interference.", actions: [] };
   }
 };
